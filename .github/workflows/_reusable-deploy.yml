@@ -1,0 +1,185 @@
+# =============================================================================
+# Reusable workflow - the ONE place that performs a Databricks deployment.
+# Called by:
+#   deploy-databricks.yml   (deploy a selected version)
+#   rollback-databricks.yml (redeploy a previously validated version)
+#
+# Flow:  [APPROVAL GATE via GitHub environment - before any step runs]
+#        -> checkout pipeline -> load config/<env>.env -> check CLI + auth
+#        -> resolve & verify tag -> checkout tag -> bundle validate + deploy
+#        -> run job (validation task) -> verify in workspace
+#        -> (on failure) auto-rollback -> summary + logs (always)
+#
+# NOTE: the approval gate happens before the job starts, because the job uses
+# "environment: <env>". Environment secrets are released to the runner only
+# after approval. Reviewers are configured on the GitHub environment
+# (Settings -> Environments -> test -> Required reviewers).
+# =============================================================================
+name: _reusable-deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment / pipeline config name (dev, test, prod)
+        type: string
+        required: true
+      version:
+        description: Git tag to deploy, or "latest" / "previous"
+        type: string
+        required: true
+      mode:
+        description: deploy or rollback (label only - shown in logs and summary)
+        type: string
+        default: deploy
+      run_job:
+        description: Run the job (and its validation task) after deploying
+        type: boolean
+        default: true
+      auto_rollback:
+        description: Redeploy the previously live version if this one fails
+        type: boolean
+        default: true
+      reason:
+        description: Free-text reason / change ticket, recorded in the summary
+        type: string
+        default: ""
+    outputs:
+      deployed_version:
+        description: The concrete tag that was deployed
+        value: ${{ jobs.deploy.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.mode }} ${{ inputs.version }} to ${{ inputs.environment }}
+    # Self-hosted VM runner. Override the labels with the repository variable
+    # RUNNER_LABELS, e.g. ["self-hosted","linux","databricks-deploy"].
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["self-hosted","databricks-deploy"]') }}
+    environment:
+      name: ${{ inputs.environment }}
+    timeout-minutes: 90
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+
+    env:
+      # Credentials come from the GitHub ENVIRONMENT secrets (dev / test / prod),
+      # so each environment automatically talks to its own workspace / identity.
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST || vars.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      TARGET_ENV: ${{ inputs.environment }}
+      REQUESTED_VERSION: ${{ inputs.version }}
+      DEPLOY_MODE: ${{ inputs.mode }}
+      DEPLOY_REASON: ${{ inputs.reason }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout pipeline code (workflow branch)
+        uses: actions/checkout@v4
+        with:
+          path: pipeline
+          fetch-depth: 0          # full history + all tags, needed for version checks
+
+      - name: Prepare log folder
+        run: |
+          echo "LOG_DIR=${RUNNER_TEMP}/deploy-logs-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "CI_SCRIPTS=${GITHUB_WORKSPACE}/pipeline/scripts/ci" >> "$GITHUB_ENV"
+
+      - name: Load environment configuration (config/${{ inputs.environment }}.env)
+        run: bash "$CI_SCRIPTS/load_env_config.sh" "$TARGET_ENV"
+
+      - name: Check for Databricks CLI on runner
+        id: cli
+        run: |
+          if command -v databricks >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Databricks CLI (only if missing on the runner)
+        if: steps.cli.outputs.found != 'true'
+        uses: databricks/setup-cli@main
+
+      - name: Verify tools and Databricks authentication
+        run: bash "$CI_SCRIPTS/check_auth.sh"
+
+      - name: Resolve and verify release version
+        id: resolve
+        env:
+          REPO_DIR: ${{ github.workspace }}/pipeline
+        run: bash "$CI_SCRIPTS/resolve_version.sh"
+
+      - name: Checkout release ${{ steps.resolve.outputs.version }}
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.resolve.outputs.version }}
+          path: release
+
+      - name: Validate and deploy bundle
+        id: deploy
+        run: bash "$CI_SCRIPTS/deploy_bundle.sh" "$GITHUB_WORKSPACE/release" "$BUNDLE_TARGET" "$RELEASE_VERSION" deploy
+
+      - name: Run job (includes data validation task)
+        id: run
+        if: inputs.run_job && env.RUN_JOB_AFTER_DEPLOY == 'true'
+        run: bash "$CI_SCRIPTS/run_job.sh" "$GITHUB_WORKSPACE/release" "$BUNDLE_TARGET" "$RELEASE_VERSION" "$JOB_RESOURCE_KEY" run
+
+      - name: Verify deployment in workspace
+        id: verify
+        run: bash "$CI_SCRIPTS/verify_deployment.sh" "$RELEASE_VERSION" "$JOB_NAME" "${{ steps.run.outcome == 'success' }}"
+
+      # ---------------- Error handling: automatic rollback --------------------
+      - name: Checkout previous version for auto-rollback
+        id: rb_checkout
+        if: >-
+          failure() &&
+          inputs.auto_rollback &&
+          env.AUTO_ROLLBACK_ON_FAILURE == 'true' &&
+          steps.resolve.outputs.previous_version != '' &&
+          (steps.deploy.outcome == 'success' || steps.deploy.outcome == 'failure')
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.resolve.outputs.previous_version }}
+          path: rollback
+
+      - name: Auto-rollback to ${{ steps.resolve.outputs.previous_version }}
+        id: rollback
+        if: failure() && steps.rb_checkout.outcome == 'success'
+        env:
+          ROLLBACK_VERSION: ${{ steps.resolve.outputs.previous_version }}
+        run: |
+          echo "::warning::Release $RELEASE_VERSION failed - rolling back $TARGET_ENV to $ROLLBACK_VERSION"
+          bash "$CI_SCRIPTS/deploy_bundle.sh" "$GITHUB_WORKSPACE/rollback" "$BUNDLE_TARGET" "$ROLLBACK_VERSION" rollback
+          expect_run=false
+          if [[ "${{ inputs.run_job }}" == "true" && "$RUN_JOB_AFTER_DEPLOY" == "true" ]]; then
+            bash "$CI_SCRIPTS/run_job.sh" "$GITHUB_WORKSPACE/rollback" "$BUNDLE_TARGET" "$ROLLBACK_VERSION" "$JOB_RESOURCE_KEY" rollback-run
+            expect_run=true
+          fi
+          bash "$CI_SCRIPTS/verify_deployment.sh" "$ROLLBACK_VERSION" "$JOB_NAME" "$expect_run"
+
+      # ---------------- Reporting (always) ------------------------------------
+      - name: Write deployment summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          RUN_URL: ${{ steps.run.outputs.run_url }}
+          JOB_URL: ${{ steps.verify.outputs.job_url }}
+        run: bash "$CI_SCRIPTS/write_summary.sh"
+
+      - name: Upload execution logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: databricks-${{ inputs.environment }}-${{ steps.resolve.outputs.version || 'unresolved' }}-run${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.LOG_DIR }}
+          retention-days: 90
+          if-no-files-found: warn

@@ -1,0 +1,100 @@
+# =============================================================================
+# Databricks Asset Bundle - NRAP CI/CD Demo
+# -----------------------------------------------------------------------------
+# This file is the single source of truth for WHAT gets deployed to Databricks
+# and HOW it differs per environment (DEV / TEST / PROD).
+#
+#   - Resources (jobs) are defined in resources/*.yml
+#   - Notebooks live in src/notebooks/
+#   - Environment differences live in the "targets" section below
+#
+# Placeholders are marked  __REPLACE_...__  (see docs/02_PLACEHOLDERS_GUIDE.md).
+# The defaults below work as-is on a Databricks Free Edition workspace.
+# =============================================================================
+
+bundle:
+  name: nrap_cicd_demo
+  # Fail fast if the runner has an old CLI that does not understand bundles.
+  databricks_cli_version: ">= 0.218.0"
+
+include:
+  - resources/*.yml
+
+# -----------------------------------------------------------------------------
+# Variables - every value that changes between environments is a variable.
+# Each target overrides them below. The GitHub workflow also passes
+# release_version on the command line (--var="release_version=v1.2.0").
+# -----------------------------------------------------------------------------
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the demo schema.
+    default: workspace
+  schema:
+    description: Unity Catalog schema (database) for the demo table.
+    default: nrap_demo_dev
+  env_name:
+    description: Logical environment name stamped on data and audit rows.
+    default: DEV
+  release_version:
+    description: Git tag / release being deployed. Set by the CI/CD workflow.
+    default: local-dev
+  expected_min_rows:
+    description: Minimum row count the validation task expects in the demo table.
+    default: "5"
+  create_catalog:
+    description: "true = the setup task runs CREATE CATALOG IF NOT EXISTS (needs metastore privileges)."
+    default: "false"
+  notification_email:
+    description: Address that receives job failure e-mails (blank = no e-mail).
+    default: ""
+
+targets:
+  # ---------------------------------------------------------------------------
+  # DEV - no approval in GitHub, deploys automatically when requested.
+  # ---------------------------------------------------------------------------
+  dev:
+    default: true
+    workspace:
+      # The host is normally supplied by the DATABRICKS_HOST secret in the
+      # GitHub "dev" environment. Uncomment to hard-pin the workspace so the
+      # bundle can never be deployed to the wrong place.
+      # host: __REPLACE_DEV_WORKSPACE_URL__
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: workspace            # e.g. nrap_dev in an enterprise metastore
+      schema: nrap_demo_dev
+      env_name: DEV
+      expected_min_rows: "5"
+      notification_email: ""        # __REPLACE_DEV_NOTIFICATION_EMAIL__ (optional)
+
+  # ---------------------------------------------------------------------------
+  # TEST - GitHub environment "test" requires reviewer approval first.
+  # ---------------------------------------------------------------------------
+  test:
+    workspace:
+      # host: __REPLACE_TEST_WORKSPACE_URL__
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: workspace            # e.g. nrap_test
+      schema: nrap_demo_test
+      env_name: TEST
+      expected_min_rows: "5"
+      notification_email: ""        # __REPLACE_TEST_NOTIFICATION_EMAIL__ (optional)
+
+  # ---------------------------------------------------------------------------
+  # PROD - template only. The workflow does not offer "prod" yet; add it to the
+  # workflow's environment choice list when PROD is ready (see docs).
+  # ---------------------------------------------------------------------------
+  prod:
+    workspace:
+      # host: __REPLACE_PROD_WORKSPACE_URL__
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    # Recommended for PROD: run the job as a service principal, not a person.
+    # run_as:
+    #   service_principal_name: __REPLACE_PROD_SP_APPLICATION_ID__
+    variables:
+      catalog: workspace            # e.g. nrap_prod
+      schema: nrap_demo_prod
+      env_name: PROD
+      expected_min_rows: "5"
+      notification_email: ""        # __REPLACE_PROD_NOTIFICATION_EMAIL__

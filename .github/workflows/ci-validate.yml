@@ -1,0 +1,74 @@
+# =============================================================================
+# CI - Validate. Runs on pull requests and pushes to main.
+#   static-checks   : notebook syntax, shell syntax, Windows line-ending guard
+#                     (no Databricks access needed - GitHub-hosted runner)
+#   bundle-validate : "databricks bundle validate -t dev" on the self-hosted
+#                     runner using the dev environment credentials
+# Pull requests from forks never reach the self-hosted runner.
+# =============================================================================
+name: CI - Validate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax check (notebooks)
+        run: python3 -m py_compile src/notebooks/*.py
+
+      - name: Shell syntax check (scripts)
+        run: for f in scripts/ci/*.sh scripts/runner/*.sh; do bash -n "$f" && echo "OK  $f"; done
+
+      - name: Line-ending guard (CRLF breaks bash on Linux runners)
+        run: |
+          bad=$(grep -rlI $'\r' --include='*.sh' --include='*.env' --include='*.yml' --include='*.py' . || true)
+          if [[ -n "$bad" ]]; then
+            echo "::error::Files with Windows (CRLF) line endings:"; echo "$bad"; exit 1
+          fi
+          echo "No CRLF line endings found"
+
+  bundle-validate:
+    needs: static-checks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ fromJSON(vars.RUNNER_LABELS || '["self-hosted","databricks-deploy"]') }}
+    environment:
+      name: dev
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST || vars.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Databricks CLI
+        id: cli
+        run: |
+          if command -v databricks >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install Databricks CLI (only if missing)
+        if: steps.cli.outputs.found != 'true'
+        uses: databricks/setup-cli@main
+
+      - name: Verify authentication
+        run: bash scripts/ci/check_auth.sh
+
+      - name: Bundle validate (dev)
+        run: databricks bundle validate -t dev --var="release_version=ci-${GITHUB_SHA::7}"

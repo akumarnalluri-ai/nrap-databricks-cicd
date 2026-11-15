@@ -1,0 +1,23 @@
+# Databricks bundle local state / build output
+.databricks/
+.bundle/
+
+# Local credentials - never commit
+.databrickscfg
+*.env.local
+.env
+
+# Logs and temp
+logs/
+*.log
+resp.json
+
+# Python / editors / OS
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

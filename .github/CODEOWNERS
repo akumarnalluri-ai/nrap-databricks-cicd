@@ -1,0 +1,8 @@
+# Pull requests touching these paths require a review from the listed owners.
+# Replace the placeholders with real GitHub users or teams (e.g. @my-org/data-platform).
+# Enable "Require review from Code Owners" in the main branch protection rule.
+
+*                         @akumarnalluri-ai
+/.github/                 @akumarnalluri-ai
+/databricks.yml           @akumarnalluri-ai
+/config/                  @akumarnalluri-ai

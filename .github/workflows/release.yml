@@ -1,0 +1,38 @@
+# =============================================================================
+# Release - when a version tag (v1.2.3) is pushed, create a GitHub Release
+# with auto-generated notes. The tag/release is what the deploy workflow
+# selects. If the release was already created in the GitHub UI, this is a no-op.
+# =============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Create GitHub Release for ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          body=$(jq -n --arg t "$TAG" '{tag_name:$t, name:$t, generate_release_notes:true}')
+          code=$(curl -sS -o resp.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases" -d "$body")
+          case "$code" in
+            201) echo "Release $TAG created: $(jq -r .html_url resp.json)"
+                 echo "### Release [$TAG]($(jq -r .html_url resp.json)) created - ready to deploy" >> "$GITHUB_STEP_SUMMARY" ;;
+            422) echo "::notice::Release $TAG already exists - nothing to do" ;;
+            *)   echo "::error::GitHub API returned $code"; cat resp.json; exit 1 ;;
+          esac

@@ -1,0 +1,88 @@
+# =============================================================================
+# Job resource: nrap_demo_job
+# -----------------------------------------------------------------------------
+# Three notebook tasks run in sequence:
+#   1. setup_schema_table  -> CREATE SCHEMA / CREATE TABLE (idempotent)
+#   2. load_sample_data    -> MERGE sample rows stamped with env + version
+#   3. validate_deployment -> data checks + audit row; FAILS the run on error
+#
+# Job parameters are pushed down to every notebook as widgets, so the
+# notebooks never hard-code a catalog, schema or environment.
+#
+# Compute: no cluster is declared, so tasks run on SERVERLESS compute
+# (required on Databricks Free Edition). See the commented job_clusters block
+# if your enterprise workspace uses classic clusters instead.
+# =============================================================================
+
+resources:
+  jobs:
+    nrap_demo_job:
+      # Deterministic name per environment - the CI scripts look the job up by
+      # this name (see JOB_NAME in config/<env>.env). Keep the two in sync.
+      name: nrap_demo_job_${bundle.target}
+      description: "NRAP CI/CD demo job - deployed from release ${var.release_version}"
+
+      max_concurrent_runs: 1
+      timeout_seconds: 3600
+
+      # Tags make the deployed version visible in the Jobs UI and are read by
+      # scripts/get_deployed_version.sh for validation and rollback.
+      tags:
+        environment: ${var.env_name}
+        release_version: ${var.release_version}
+        managed_by: databricks-asset-bundles
+        project: nrap
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: env_name
+          default: ${var.env_name}
+        - name: release_version
+          default: ${var.release_version}
+        - name: expected_min_rows
+          default: ${var.expected_min_rows}
+        - name: create_catalog
+          default: ${var.create_catalog}
+        # Databricks dynamic value - resolved at run time to the run's ID.
+        - name: job_run_id
+          default: "{{job.run_id}}"
+
+      # Failure e-mails: uncomment once notification_email is set for every
+      # target in databricks.yml (the Jobs API rejects a blank address).
+      # email_notifications:
+      #   on_failure:
+      #     - ${var.notification_email}
+      #   no_alert_for_skipped_runs: true
+
+      tasks:
+        - task_key: setup_schema_table
+          notebook_task:
+            notebook_path: ../src/notebooks/01_setup_schema_table.py
+
+        - task_key: load_sample_data
+          depends_on:
+            - task_key: setup_schema_table
+          notebook_task:
+            notebook_path: ../src/notebooks/02_load_sample_data.py
+
+        - task_key: validate_deployment
+          depends_on:
+            - task_key: load_sample_data
+          notebook_task:
+            notebook_path: ../src/notebooks/03_validate_deployment.py
+
+      # ---------------------------------------------------------------------
+      # Classic-cluster option (enterprise workspaces only). To use it:
+      #   1. uncomment the block below,
+      #   2. add  "job_cluster_key: main_cluster"  to each task above.
+      # ---------------------------------------------------------------------
+      # job_clusters:
+      #   - job_cluster_key: main_cluster
+      #     new_cluster:
+      #       spark_version: 15.4.x-scala2.12
+      #       node_type_id: __REPLACE_NODE_TYPE__        # e.g. Standard_DS3_v2
+      #       num_workers: 1
+      #       data_security_mode: SINGLE_USER

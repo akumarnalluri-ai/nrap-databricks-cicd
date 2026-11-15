@@ -1,0 +1,58 @@
+# =============================================================================
+# Deploy Databricks - manual, version-based deployment.
+# Actions tab -> "Deploy Databricks" -> Run workflow ->
+#   environment = dev | test        version = v1.2.0 | latest
+# TEST waits for approval from the reviewers on the GitHub "test" environment.
+# =============================================================================
+name: Deploy Databricks
+run-name: "Deploy ${{ inputs.version }} to ${{ inputs.environment }} (by ${{ github.actor }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options:
+          - dev
+          - test
+          # - prod      # enable when PROD is ready (see docs/05_DEPLOYMENT_VALIDATION_ROLLBACK.md)
+        default: dev
+      version:
+        description: Release to deploy - a Git tag such as v1.0.0, or "latest"
+        type: string
+        required: true
+        default: latest
+      run_job:
+        description: Run the job after deploy (runs the validation task)
+        type: boolean
+        default: true
+      auto_rollback:
+        description: Auto-rollback to the previously live version on failure
+        type: boolean
+        default: true
+      reason:
+        description: Reason / change ticket (e.g. CHG0012345) - shown in the run summary
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# One deployment per environment at a time (shared with the rollback workflow).
+concurrency:
+  group: databricks-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_reusable-deploy.yml
+    with:
+      environment: ${{ inputs.environment }}
+      version: ${{ inputs.version }}
+      mode: deploy
+      run_job: ${{ inputs.run_job }}
+      auto_rollback: ${{ inputs.auto_rollback }}
+      reason: ${{ inputs.reason }}
+    secrets: inherit

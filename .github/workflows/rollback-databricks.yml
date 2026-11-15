@@ -1,0 +1,49 @@
+# =============================================================================
+# Rollback Databricks - redeploy a previously approved / validated version.
+# version = "previous"  -> the last version that ran successfully in that
+#                          environment before the one live now
+# version = v1.0.0      -> that exact tag
+# Goes through the same approval gate as a normal deployment.
+# =============================================================================
+name: Rollback Databricks
+run-name: "Rollback ${{ inputs.environment }} to ${{ inputs.version }} (by ${{ github.actor }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        type: choice
+        options:
+          - dev
+          - test
+          # - prod
+        default: dev
+      version:
+        description: Version to restore - "previous" or an explicit tag such as v1.0.0
+        type: string
+        required: true
+        default: previous
+      reason:
+        description: Reason for the rollback / incident or change ticket
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: databricks-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    uses: ./.github/workflows/_reusable-deploy.yml
+    with:
+      environment: ${{ inputs.environment }}
+      version: ${{ inputs.version }}
+      mode: rollback
+      run_job: true
+      auto_rollback: false     # never chain rollbacks
+      reason: ${{ inputs.reason }}
+    secrets: inherit
