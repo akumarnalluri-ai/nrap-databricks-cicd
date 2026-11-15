@@ -39,6 +39,10 @@ to_output() { echo "$1=$2" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
 is_true() { [[ "${1,,}" == "true" ]]; }
 
+# Windows runners: native jq.exe / databricks.exe can emit CRLF line endings,
+# which corrupt values (job ids, versions) in bash. Strip carriage returns.
+jq() { command jq "$@" | tr -d '\r'; }
+
 # --- Databricks lookups ------------------------------------------------------
 
 # find_job_id <job-name>  -> prints the job_id, or nothing if the job doesn't exist
