@@ -8,3 +8,4 @@
 *.md    text eol=lf
 # PowerShell runs on Windows - keep CRLF there.
 *.ps1   text eol=crlf
+*.cmd   text eol=crlf

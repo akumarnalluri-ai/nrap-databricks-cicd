@@ -81,3 +81,6 @@ Detailed steps: **[docs/06_DEMO_RUNBOOK.md](docs/06_DEMO_RUNBOOK.md)**.
 | [04_SELF_HOSTED_RUNNER_SETUP.md](docs/04_SELF_HOSTED_RUNNER_SETUP.md) | Building the VM runner |
 | [05_DEPLOYMENT_VALIDATION_ROLLBACK.md](docs/05_DEPLOYMENT_VALIDATION_ROLLBACK.md) | Day-to-day operations, logs, failures, rollback |
 | [06_DEMO_RUNBOOK.md](docs/06_DEMO_RUNBOOK.md) | Running the DEV → TEST demo end to end |
+| [07_SETUP_WALKTHROUGH.md](docs/07_SETUP_WALKTHROUGH.md) | The exact setup we did step by step, how CI - Validate / Release / _reusable-deploy work inside, problems and fixes |
+| [08_USING_THIS_REPO.md](docs/08_USING_THIS_REPO.md) | **Sharing the repo** – how collaborators use it, or how to set up your own copy with your own secrets |
+| [09_RUNNER_START_STOP.md](docs/09_RUNNER_START_STOP.md) | Turning the laptop runner back on after closing PowerShell, desktop shortcut, what happens while it is off |
