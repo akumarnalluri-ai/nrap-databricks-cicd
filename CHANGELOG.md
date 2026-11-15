@@ -2,7 +2,7 @@
 
 Each entry corresponds to a Git tag that can be selected in the **Deploy Databricks** workflow.
 
-## v1.1.0 (demo change - create when you run the demo)
+## v1.1.0
 - Add a sixth sample order (order_id 1006) in `src/notebooks/02_load_sample_data.py`
 - Raise `expected_min_rows` to 6 for dev and test in `databricks.yml`
 

@@ -37,6 +37,7 @@ sample_orders = [
     (1003, "Lone Star Transit",   4310.75, "2026-01-07", "SHIPPED"),
     (1004, "Metro Road Services",  220.00, "2026-01-08", "CANCELLED"),
     (1005, "Trinity Fleet Co",    1899.99, "2026-01-09", "NEW"),
+    (1006, "Panhandle Haulers",    735.40, "2026-01-10", "NEW"),      # added in v1.1.0
 ]
 
 from delta.tables import DeltaTable

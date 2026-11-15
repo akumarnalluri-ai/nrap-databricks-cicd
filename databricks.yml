@@ -64,7 +64,7 @@ targets:
       catalog: workspace            # e.g. nrap_dev in an enterprise metastore
       schema: nrap_demo_dev
       env_name: DEV
-      expected_min_rows: "5"
+      expected_min_rows: "6"   # v1.1.0: 6 sample orders
       notification_email: ""        # __REPLACE_DEV_NOTIFICATION_EMAIL__ (optional)
 
   # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ targets:
       catalog: workspace            # e.g. nrap_test
       schema: nrap_demo_test
       env_name: TEST
-      expected_min_rows: "5"
+      expected_min_rows: "6"   # v1.1.0: 6 sample orders
       notification_email: ""        # __REPLACE_TEST_NOTIFICATION_EMAIL__ (optional)
 
   # ---------------------------------------------------------------------------
