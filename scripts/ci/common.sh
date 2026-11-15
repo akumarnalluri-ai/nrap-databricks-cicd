@@ -6,6 +6,11 @@
 # =============================================================================
 set -Eeuo pipefail
 
+# Windows (Git Bash / MSYS): stop bash rewriting "/Workspace/..." arguments
+# into Windows paths before they reach the Databricks CLI. No effect on Linux.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL="*"
+
 LOG_DIR="${LOG_DIR:-${RUNNER_TEMP:-/tmp}/deploy-logs}"
 mkdir -p "$LOG_DIR"
 
